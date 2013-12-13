@@ -16,6 +16,7 @@
     "dependencies": {
         "evo-elements": "git://github.com/evo-cloud/elements",
         "evo-neuron": "git://github.com/evo-cloud/neuron",
+        "evo-idioms": "git://github.com/evo-cloud/idioms",
         "async": "0.2.9",
         "js-class": "0.0.2",
         "underscore": "1.5.1"

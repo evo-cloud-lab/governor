@@ -3,54 +3,13 @@ var assert = require('assert'),
     Try    = require('evo-elements').Try,
     Config = require('evo-elements').Config,
     Logger = require('evo-elements').Logger,
+    ConnectorClient = require('evo-idioms').ConnectorClient,
 
+    Helpers = require('./Helpers'),
+    waitUntil = Helpers.waitUntil,
     Collector = require('../index').Collector;
 
 describe('Collector', function () {
-    var NeuronStub = Class(process.EventEmitter, {
-        constructor: function (sendHook) {
-            this.branches = {};
-            this.dispatchers = {};
-            this.sendHook = sendHook;
-        },
-
-        subscribe: function (event, branch, handler) {
-            var handlers = this.branches[branch];
-            handlers || (handlers = this.branches[branch] = {});
-            handlers[event] = handler;
-            return this;
-        },
-
-        dispatch: function (event, handler) {
-            this.dispatchers[event] = handler;
-            return this;
-        },
-
-        send: function () {
-            this.sendHook && this.sendHook.apply(this, arguments);
-            return this;
-        },
-
-        publish: function (branch, event, data) {
-            var handlers = this.branches[branch];
-            var handler = handlers && handlers[event];
-            handler && handler({ event: event, data: data });
-        },
-
-        invoke: function (event, data) {
-            var handler = this.dispatchers[event];
-            handler && handler({ src: 'src', event: event, data: data });
-        }
-    });
-
-    function waitUntil(logic, next, interval) {
-        interval || (interval = 10);
-        var waitFn = function () {
-            logic() ? next() : setTimeout(waitFn, interval);
-        };
-        waitFn();
-    }
-
     var USAGES_MSG = {
         src: 'src',
         msg: {
@@ -64,7 +23,7 @@ describe('Collector', function () {
         }
     };
 
-    var logger, collector;
+    var logger, neuron, connector, collector;
 
     before(function () {
         var conf = Config.conf([]);
@@ -72,12 +31,13 @@ describe('Collector', function () {
     });
 
     beforeEach(function () {
-        var neuron = new NeuronStub();
-        collector = new Collector(neuron, logger, {});
+        neuron = new Helpers.MockedNeuron();
+        connector = new ConnectorClient(neuron);
+        collector = new Collector(connector, logger, {});
     });
 
     function fillResourcePoolAndWait(done) {
-        collector.neuron.publish('connector', 'message', USAGES_MSG);
+        neuron.publish('connector', 'message', USAGES_MSG);
         waitUntil(function () { return !!collector._resourcePool._usages['src']; }, function () {
             Try.final(function () {
                 assert.ok(Array.isArray(collector._resourcePool._usages['src']));
@@ -88,10 +48,10 @@ describe('Collector', function () {
 
     function neverReport(done) {
         var sendCount = 0;
-        collector.neuron.sendHook = function () {
+        neuron.sendHook = function () {
             sendCount ++;
         };
-        collector.neuron.invoke(USAGES_MSG.msg.event, USAGES_MSG.msg.data);
+        collector.importUsages('src', USAGES_MSG.msg.data.usages);
         setTimeout(function () {
             Try.final(function () {
                 assert.equal(sendCount, 0);
@@ -102,27 +62,27 @@ describe('Collector', function () {
     function nodesUpdate(done) {
         fillResourcePoolAndWait(function (err) {
             err ? done(err) : (function () {
-                collector.neuron.publish('connector', 'update', { nodes: [] });
+                neuron.publish('connector', 'update', { nodes: [] });
                 waitUntil(function () { return Object.keys(collector._resourcePool._usages).length == 0; }, done);
             })();
         });
     }
 
     function dendriteDisconnect(done) {
-        collector.neuron.invoke(USAGES_MSG.msg.event, USAGES_MSG.msg.data);
+        collector.importUsages('src', USAGES_MSG.msg.data.usages);
         waitUntil(function () {
             return collector._localUsages.usages['memory'] && collector._localUsages.usages['disk'];
         }, function () {
-            collector.neuron.emit('disconnect', 'src');
+            neuron.emit('disconnect', 'src');
             waitUntil(function () {
                 return Object.keys(collector._localUsages.usages).length == 0;
             }, done);
         });
     }
 
-    describe('Immunized state', function () {
+    describe('Default state', function () {
         beforeEach(function () {
-            assert.equal(collector._states.currentName, 'immunized');
+            assert.equal(collector._states.currentName, 'default');
         });
 
         it('collect usages into resource pool', function (done) {
@@ -144,7 +104,7 @@ describe('Collector', function () {
 
     describe('Master state', function () {
         beforeEach(function (done) {
-            collector.neuron.publish('connector', 'state', { state: 'master' });
+            neuron.publish('connector', 'state', { state: 'master' });
             waitUntil(function () { return collector._states.currentName == 'master'; }, done);
         });
 
@@ -167,10 +127,10 @@ describe('Collector', function () {
 
     describe('Member state', function () {
         it('clear resource pool when state enters', function (done) {
-            assert.equal(collector._states.currentName, 'immunized');
+            assert.equal(collector._states.currentName, 'default');
             fillResourcePoolAndWait(function (err) {
                 err ? done(err) : (function () {
-                    collector.neuron.publish('connector', 'state', { state: 'member' });
+                    neuron.publish('connector', 'state', { state: 'member' });
                     waitUntil(function () { return collector._states.currentName == 'member'; }, function () {
                         Try.final(function () {
                             assert.deepEqual(collector._resourcePool._usages, {});
@@ -181,7 +141,7 @@ describe('Collector', function () {
         });
 
         it('report usages to master', function (done) {
-            collector.neuron.sendHook = function (branch, msg) {
+            neuron.sendHook = function (branch, msg) {
                 Try.final(function () {
                     assert.equal(branch, 'connector');
                     assert.equal(msg.event, 'send');
@@ -190,9 +150,9 @@ describe('Collector', function () {
                     assert.ok(Array.isArray(msg.data.msg.data.usages));
                 }, done);
             };
-            collector.neuron.publish('connector', 'state', { state: 'member' });
+            neuron.publish('connector', 'state', { state: 'member' });
             waitUntil(function () { return collector._states.currentName == 'member'; }, function () {
-                collector.neuron.invoke(USAGES_MSG.msg.event, USAGES_MSG.msg.data);
+                collector.importUsages('src', USAGES_MSG.msg.data.usages);
             });
         });
 
