@@ -40,8 +40,11 @@ describe('Collector', function () {
         neuron.publish('connector', 'message', USAGES_MSG);
         waitUntil(function () { return !!collector._resourcePool._usages['src']; }, function () {
             Try.final(function () {
-                assert.ok(Array.isArray(collector._resourcePool._usages['src']));
-                assert.equal(collector._resourcePool._usages['src'].length, 2);
+                var nodeUsages = collector._resourcePool._usages['src'];
+                assert.ok(nodeUsages._actualUsages);
+                assert.ok(nodeUsages._effectUsages);
+                assert.equal(Object.keys(nodeUsages._actualUsages).length, 2);
+                assert.equal(Object.keys(nodeUsages._effectUsages).length, 2);
             }, done);
         });
     }
@@ -51,7 +54,7 @@ describe('Collector', function () {
         neuron.sendHook = function () {
             sendCount ++;
         };
-        collector.importUsages('src', USAGES_MSG.msg.data.usages);
+        collector.importUsages(USAGES_MSG.msg.data.usages, 'src');
         setTimeout(function () {
             Try.final(function () {
                 assert.equal(sendCount, 0);
@@ -69,7 +72,7 @@ describe('Collector', function () {
     }
 
     function dendriteDisconnect(done) {
-        collector.importUsages('src', USAGES_MSG.msg.data.usages);
+        collector.importUsages(USAGES_MSG.msg.data.usages, 'src');
         waitUntil(function () {
             return collector._localUsages.usages['memory'] && collector._localUsages.usages['disk'];
         }, function () {
@@ -152,7 +155,7 @@ describe('Collector', function () {
             };
             neuron.publish('connector', 'state', { state: 'member' });
             waitUntil(function () { return collector._states.currentName == 'member'; }, function () {
-                collector.importUsages('src', USAGES_MSG.msg.data.usages);
+                collector.importUsages(USAGES_MSG.msg.data.usages, 'src');
             });
         });
 
