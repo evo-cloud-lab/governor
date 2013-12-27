@@ -14,9 +14,9 @@
     "main": "index.js",
     "bin": "governor.js",
     "dependencies": {
-        "evo-elements": "https://github.com/evo-cloud/elements",
-        "evo-neuron": "https://github.com/evo-cloud/neuron",
-        "evo-idioms": "https://github.com/evo-cloud/idioms",
+        "evo-elements": "git://github.com/evo-cloud/elements",
+        "evo-neuron": "git://github.com/evo-cloud/neuron",
+        "evo-idioms": "git://github.com/evo-cloud/idioms",
         "async": "0.2.9",
         "js-class": "0.0.2",
         "underscore": "1.5.1"
